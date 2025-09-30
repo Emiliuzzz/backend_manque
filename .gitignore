@@ -1,0 +1,60 @@
+# Created by venv; see https://docs.python.org/3/library/venv.html
+
+# Entorno virtual
+# Entorno virtual
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Migraciones compiladas
+*/migrations/*.pyc
+*/migrations/__pycache__/
+
+# Logs
+*.log
+
+# BD locales
+*.sqlite3
+*.sql
+*.db
+*.bak
+
+# Entorno
+*.env
+.env.*
+.envrc
+
+# Claves / certificados
+*.pem
+*.key
+*.crt
+*.pfx
+
+# Django assets
+media/
+staticfiles/
+
+# Node / Angular
+node_modules/
+dist/
+
+# Tests / linters
+.coverage
+coverage.xml
+.pytest_cache/
+.mypy_cache/
+ruff_cache/
+.tox/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
