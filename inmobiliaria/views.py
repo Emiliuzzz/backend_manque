@@ -2,10 +2,16 @@ from django.shortcuts import render
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse, JsonResponse
 
-from rest_framework import viewsets, permissions
-from .models import Propietario, Direccion_propietario, Region, Comuna, Propiedad
-from .serializers import (PropietarioSerializer, PropietarioDireccionSerializer, RegionSerializer, ComunaSerializer
-)
+
+from datetime import datetime
+from django.utils import timezone
+from rest_framework import viewsets, permissions, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from .models import *
+from .serializers import *
+from .config import *
+from .utils import * 
 
 
 # Create your views here.
@@ -20,7 +26,7 @@ class ComunaViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.AllowAny]
 
 class PropietarioViewSet(viewsets.ModelViewSet):
-    queryset = Propietario.objects.all().order_by('nombre')
+    queryset = Propietario.objects.all().order_by('primer_nombre')
     serializer_class = PropietarioSerializer
     permission_classes = [permissions.AllowAny]
 
@@ -29,7 +35,61 @@ class PropietarioDireccionViewSet(viewsets.ModelViewSet):
     serializer_class = PropietarioDireccionSerializer
     permission_classes = [permissions.AllowAny]
 
+class InteresadoViewSet(viewsets.ModelViewSet):
+    queryset = Interesado.objects.all().order_by('-id')
+    serializer_class = InteresadoSerializer
+    permission_classes = [permissions.AllowAny]
 
+
+class VisitaViewSet(viewsets.ModelViewSet):
+    queryset = Visita.objects.all().order_by("-id")
+    serializer_class = VisitaSerializer
+    permission_classes = [permissions.AllowAny]
+
+    @action(detail=False, methods=["GET"], url_path="slots")
+    def slots(self, request):
+        prop_id = request.query_params.get("propiedad")
+        fecha_str = request.query_params.get("fecha")
+        if not prop_id or not fecha_str:
+            return Response({"detail": "Falta propiedad o fecha"}, status=400)
+        try:
+            fecha = datetime.strptime(fecha_str, "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"detail": "Formato de fecha inválido (YYYY-MM-DD)"}, status=400)
+
+        libres = slots_disponibles_para_propiedad(int(prop_id), fecha)
+        return Response([h.strftime("%H:%M") for h in libres], status=200)
+
+    @action(detail=False, methods=["GET"], url_path="agenda")
+    def agenda(self, request):
+        prop_id = request.query_params.get("propiedad")
+        if not prop_id:
+            return Response({"detail": "Falta propiedad"}, status=400)
+
+        start_str = request.query_params.get("start")
+        days_str = request.query_params.get("days")
+
+        start = None
+        if start_str:
+            try:
+                start = datetime.strptime(start_str, "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"detail": "start inválido, use YYYY-MM-DD"}, status=400)
+
+        days = DEFAULT_DAYS_PAGE
+        if days_str:
+            try:
+                days = int(days_str)
+            except ValueError:
+                pass
+        if days < 1:
+            days = 1
+        if days > MAX_DAYS_PAGE:
+            days = MAX_DAYS_PAGE
+
+        data = generar_agenda_disponible(int(prop_id), start_date=start, days=days)
+        return Response(data, status=200)
+    
 
 
 def index(request):
