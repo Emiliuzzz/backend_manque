@@ -2,7 +2,6 @@ from rest_framework import serializers
 from .models import *
 from .validators import *
 from .config import *
-from .utils import slots_futuro
 from django.utils import timezone
 
 class RegionSerializer(serializers.ModelSerializer):
@@ -61,6 +60,8 @@ class VisitaSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def validate(self, attrs):
+        from .utils import slots_futuro
+        
         fecha = attrs.get("fecha", getattr(self.instance, "fecha", None))
         hora = attrs.get("hora", getattr(self.instance, "hora", None))
         propiedad = attrs.get("propiedad", getattr(self.instance, "propiedad", None))
@@ -94,3 +95,30 @@ class VisitaSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Has alcanzado el límite de {MAX_VISITAS_ACTIVAS_POR_INTERESADO} visitas activas.")
 
         return attrs
+    
+class ReservaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Reserva
+        fields = "__all__"
+
+class ContratoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Contrato
+        fields = "__all__"
+
+class PagoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Pago
+        fields = "__all__"
+
+
+class PropiedadFotoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PropiedadFoto
+        fields = "__all__"
+
+class PropiedadDocumentoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PropiedadDocumento
+        fields = "__all__"
+

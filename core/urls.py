@@ -26,6 +26,11 @@ router.register(r'regiones', views.RegionViewSet)
 router.register(r'comunas', views.ComunaViewSet)
 router.register(r'interesados', views.InteresadoViewSet)
 router.register(r'visitas', views.VisitaViewSet)
+router.register(r'reservas', views.ReservaViewSet)
+router.register(r'contratos', views.ContratoViewSet)
+router.register(r'pagos', views.PagoViewSet)
+router.register(r'propiedad-fotos', views.PropiedadFotoViewSet)
+router.register(r'propiedad-documentos', views.PropiedadDocumentoViewSet)
 
 
 urlpatterns = [

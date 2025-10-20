@@ -15,6 +15,26 @@ from .utils import *
 
 
 # Create your views here.
+
+
+def index(request):
+    return render(request,'index.html')
+def hello(request):
+    return HttpResponse("Hello World")
+
+def about(request):
+    return HttpResponse("About")
+
+def propietario(request):
+    propietario = list(Propietario.objects.values())
+    return JsonResponse(propietario, safe=False)
+
+def propiedad(request, id):
+    propiedades = get_object_or_404(Propiedad, id=id)
+    return HttpResponse('propiedad: %s' % propiedades.titulo)
+
+
+
 class RegionViewSet(viewsets.ModelViewSet):
     queryset = Region.objects.all().order_by('nombre_region')
     serializer_class = RegionSerializer
@@ -92,20 +112,33 @@ class VisitaViewSet(viewsets.ModelViewSet):
     
 
 
-def index(request):
-    return render(request,'index.html')
-def hello(request):
-    return HttpResponse("Hello World")
 
-def about(request):
-    return HttpResponse("About")
 
-def propietario(request):
-    propietario = list(Propietario.objects.values())
-    return JsonResponse(propietario, safe=False)
 
-def propiedad(request, id):
-    propiedades = get_object_or_404(Propiedad, id=id)
-    return HttpResponse('propiedad: %s' % propiedades.titulo)
+class ReservaViewSet(viewsets.ModelViewSet):
+    queryset = Reserva.objects.all().order_by("-fecha")
+    serializer_class = ReservaSerializer
+    permission_classes = [permissions.AllowAny]
+
+class ContratoViewSet(viewsets.ModelViewSet):
+    queryset = Contrato.objects.all().order_by("-fecha_firma")
+    serializer_class = ContratoSerializer
+    permission_classes = [permissions.AllowAny]
+
+class PagoViewSet(viewsets.ModelViewSet):
+    queryset = Pago.objects.all().order_by("-fecha")
+    serializer_class = PagoSerializer
+    permission_classes = [permissions.AllowAny]
+
+class PropiedadFotoViewSet(viewsets.ModelViewSet):
+    queryset = PropiedadFoto.objects.all().order_by("propiedad","orden")
+    serializer_class = PropiedadFotoSerializer
+    permission_classes = [permissions.AllowAny]
+
+class PropiedadDocumentoViewSet(viewsets.ModelViewSet):
+    queryset = PropiedadDocumento.objects.all().order_by("-subido")
+    serializer_class = PropiedadDocumentoSerializer
+    permission_classes = [permissions.AllowAny]
+
 
   

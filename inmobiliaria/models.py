@@ -42,11 +42,6 @@ class Propietario(models.Model):
 
     def __str__(self):
         return f"{self.nombre_completo} - {self.rut}"
-    
-    
-    def __str__(self):
-        return f"{self.nombre_completo} ({self.rut})"
-
 
 class Region(models.Model):
     nombre_region = models.CharField(max_length=100)
@@ -107,8 +102,16 @@ class Propiedad(models.Model):
   
     ]
 
+    ORIENTACION = [
+        ('sur', 'Sur'),
+        ('norte', 'Norte'),
+        ('este', 'Este'),
+        ('este', 'Este'),
+    ]
+    #Hacer el select de sur, norte, este u oeste de la ciudad
+
     propietario = models.ForeignKey(Propietario, on_delete=models.CASCADE, related_name='propiedades')
-    codigo = models.CharField(max_length=30, unique=True)
+    orientación = models.CharField(max_length=30,choices= ORIENTACION, default= 'sur')
     titulo = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True)
     direccion = models.CharField(max_length=200)
@@ -121,7 +124,6 @@ class Propiedad(models.Model):
     precio = models.DecimalField(max_digits=12, decimal_places=2,
                                  validators=[MinValueValidator(0)])
     estado = models.CharField(max_length=12, choices=ESTADO_CHOICES, default='disponible')
-    propietario = models.ForeignKey(Propietario, on_delete=models.PROTECT, related_name="propiedades")
     fecha_registro = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -134,7 +136,7 @@ class Propiedad(models.Model):
 
 
     def __str__(self):
-        return f"{self.codigo} - {self.titulo} - {self.propietario.primer_nombre}"
+        return f"{self.orientación} - {self.titulo} - {self.propietario.primer_nombre}"
     
 
 
@@ -145,7 +147,7 @@ class Interesado(models.Model):
     segundo_nombre = models.CharField(max_length=100)
     primer_apellido = models.CharField(max_length=100)
     segundo_apellido = models.CharField(max_length=100)
-    rut = models.CharField(max_length=20, unique=True, validators=[]) 
+    rut = models.CharField(max_length=20, unique=True, validators=[validar_rut]) 
     telefono = models.CharField(max_length=20)
     email = models.EmailField(blank=True)
     fecha_registro = models.DateTimeField(default=timezone.now, editable=False)
@@ -159,9 +161,6 @@ class Interesado(models.Model):
         if self.telefono:
             validar_telefono_cl(self.telefono)
 
-    def __str__(self):
-        return f"({self.primer_nombre} ({self.rut}))"
-    
     # Junta nombres y apellidos
     @property
     def nombre_completo(self):
@@ -229,3 +228,89 @@ class Feriado(models.Model):
 
     def __str__(self):
         return f"{self.fecha} - {self.nombre}"
+
+
+# Tabla Reservas
+class Reserva(models.Model):
+    propiedad = models.ForeignKey(Propiedad, on_delete=models.PROTECT, related_name="reservas")
+    interesado = models.ForeignKey(Interesado, on_delete=models.PROTECT, related_name="reservas")
+    fecha = models.DateTimeField(auto_now_add=True)
+    monto_reserva = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    activa = models.BooleanField(default=True)
+    notas = models.TextField(blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["activa"])]
+
+    def __str__(self):
+        return f"Reserva {self.propiedad.orientación} - {self.interesado.nombre_completo}"
+    
+# Tabla Contratos
+class Contrato(models.Model):
+    TIPO = (("venta","Venta"),("arriendo","Arriendo"))
+    propiedad = models.ForeignKey(Propiedad, on_delete=models.PROTECT, related_name="contratos")
+    comprador_arrendatario = models.ForeignKey(Interesado, on_delete=models.PROTECT, related_name="contratos")
+    tipo = models.CharField(max_length=10, choices=TIPO)
+    fecha_firma = models.DateField()
+    precio_pactado = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    vigente = models.BooleanField(default=True)
+    archivo_pdf = models.FileField(upload_to="contratos/", blank=True, null=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["tipo","vigente"])]
+
+    def __str__(self):
+        return f"{self.tipo.title()} {self.propiedad.orientación} - {self.comprador_arrendatario.nombre_completo}"
+    
+
+# Tabla Pago
+class Pago(models.Model):
+
+    MEDIOS_PAGO = [
+        ("transferencia", "Transferencia"),
+        ("efectivo", "Efectivo"),
+        ("tarjeta_debito", "Tarjeta de débito"),
+        ("tarjeta_credito", "Tarjeta de crédito"),
+        ("cheque", "Cheque"),
+        ("webpay", "Webpay"),
+        ("otro", "Otro"),
+    ]
+    
+    contrato = models.ForeignKey(Contrato, on_delete=models.CASCADE, related_name="pagos")
+    fecha = models.DateField()
+    monto = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    medio = models.CharField(max_length=30, choices=MEDIOS_PAGO, default="transferencia")
+    comprobante = models.FileField(upload_to="pagos/", blank=True, null=True)
+    notas = models.TextField(blank=True)
+
+    def __str__(self):
+        return f"Pago {self.monto} - {self.contrato}"
+    
+
+#Tabla foto principal de la propiedad
+class PropiedadFoto(models.Model):
+    propiedad = models.ForeignKey(Propiedad, on_delete=models.CASCADE, related_name="fotos")
+    foto = models.ImageField(upload_to="propiedades/fotos/")
+    orden = models.PositiveIntegerField(default=0)
+    principal = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["propiedad","orden"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["propiedad"],
+                condition=models.Q(principal=True),
+                name="una_foto_por_propiedad",
+            )
+        ]
+
+
+# Tabla documentos propiedad
+class PropiedadDocumento(models.Model):
+    propiedad = models.ForeignKey(Propiedad, on_delete=models.CASCADE, related_name="documentos")
+    nombre = models.CharField(max_length=150)
+    archivo = models.FileField(upload_to="propiedades/docs/")
+    subido = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.propiedad.codigo} - {self.nombre}"

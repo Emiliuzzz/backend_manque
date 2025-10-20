@@ -3,11 +3,11 @@ import sys
 
 print("== Iniciando script crear_admin.py ==")
 
-# Asegúrate de que el módulo de settings es correcto
+# El modulo debe ser el correcto
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
 print("DJANGO_SETTINGS_MODULE =", os.environ.get("DJANGO_SETTINGS_MODULE"))
 
-# Muestra si ve DATABASE_URL (debería estar seteado)
+# Muestra si ve DATABASE_URL
 print("DATABASE_URL presente?", bool(os.environ.get("DATABASE_URL")))
 
 try:
