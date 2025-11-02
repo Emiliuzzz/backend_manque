@@ -1,6 +1,6 @@
-# inmobiliaria/validators.py
 import re
 from django.core.exceptions import ValidationError
+from PIL import Image
 
 RUT_REGEX = re.compile(r"^(\d{1,2}\.?\d{3}\.?\d{3})-([\dkK])$")
 
@@ -70,3 +70,21 @@ def validar_telefono_cl(value):
 
     if not PHONE_REGEX.match(canon):
         raise ValidationError("Teléfono inválido. Formato requerido: +56912345678.")
+    
+
+def validar_imagen(imagen, max_mb=8, min_w=640, min_h=480):
+    if imagen.size > max_mb * 1024 * 1024:
+        raise ValidationError(f'La imagen supera {max_mb}MB.')
+    img = Image.open(imagen)
+    if img.width < min_w or img.height < min_h:
+        raise ValidationError(f'Mínimo {min_w}x{min_h}px.')
+    
+
+def validar_pdf(archivo, max_mb=5):
+    if not archivo:
+        return
+    if archivo.size > max_mb * 1024 * 1024:
+        raise ValidationError(f"El archivo supera {max_mb} MB.")
+    content_type = getattr(archivo, "content_type", "")
+    if content_type not in ("application/pdf",):
+        raise ValidationError("Solo se permiten archivos PDF.")

@@ -16,25 +16,21 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework import routers
-from inmobiliaria import views
-
-router = routers.DefaultRouter()
-router.register(r'propietarios', views.PropietarioViewSet)
-router.register(r'direcciones', views.PropietarioDireccionViewSet)
-router.register(r'regiones', views.RegionViewSet)
-router.register(r'comunas', views.ComunaViewSet)
-router.register(r'interesados', views.InteresadoViewSet)
-router.register(r'visitas', views.VisitaViewSet)
-router.register(r'reservas', views.ReservaViewSet)
-router.register(r'contratos', views.ContratoViewSet)
-router.register(r'pagos', views.PagoViewSet)
-router.register(r'propiedad-fotos', views.PropiedadFotoViewSet)
-router.register(r'propiedad-documentos', views.PropiedadDocumentoViewSet)
-
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/', include(router.urls)),
-    path('', include('inmobiliaria.urls'))
-]   
+
+    # JWT
+    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+
+    # Incluir TODA la app
+    path('', include('inmobiliaria.urls')),
+]
+
+# Servir archivos de MEDIA en desarrollo
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

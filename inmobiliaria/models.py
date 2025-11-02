@@ -4,9 +4,25 @@ from django.core.validators import MinValueValidator
 from datetime import time
 from .validators import * 
 from .config import *
+from django.contrib.auth.models import AbstractUser
+from django.conf import settings
+
 
 
 # Create your models here.
+
+class Usuario(AbstractUser):
+    ROLES = [
+        ('ADMIN', 'Administrador'),
+        ('PROPIETARIO', 'Propietario'),
+        ('CLIENTE', 'Cliente'),
+    ]
+    rol = models.CharField(max_length=20, choices=ROLES, default='CLIENTE')
+    aprobado = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.username} ({self.get_rol_display()})"
+    
 class Propietario(models.Model):
     primer_nombre = models.CharField(max_length=100)
     segundo_nombre = models.CharField(max_length=100)
@@ -99,19 +115,17 @@ class Propiedad(models.Model):
         ('arrendada', 'Arrendada'),
         ('reservada', 'Reservada'),
         ('vendida', 'Vendida'),
-  
     ]
 
     ORIENTACION = [
         ('sur', 'Sur'),
         ('norte', 'Norte'),
         ('este', 'Este'),
-        ('este', 'Este'),
+        ('oeste', 'Oeste'),
     ]
-    #Hacer el select de sur, norte, este u oeste de la ciudad
 
     propietario = models.ForeignKey(Propietario, on_delete=models.CASCADE, related_name='propiedades')
-    orientación = models.CharField(max_length=30,choices= ORIENTACION, default= 'sur')
+    orientación = models.CharField(max_length=30, choices=ORIENTACION, default='sur')
     titulo = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True)
     direccion = models.CharField(max_length=200)
@@ -125,19 +139,80 @@ class Propiedad(models.Model):
                                  validators=[MinValueValidator(0)])
     estado = models.CharField(max_length=12, choices=ESTADO_CHOICES, default='disponible')
     fecha_registro = models.DateTimeField(auto_now_add=True)
+    propietario_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="propiedades_subidas",null=True, blank=True)
+    aprobada = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = 'Propiedad'
         verbose_name_plural = 'Propiedades'
         indexes = [
-            models.Index(fields=["estado", "tipo"]),
-            models.Index(fields=["ciudad"]),
+            models.Index(fields=['estado', 'tipo']),
+            models.Index(fields=['ciudad']),
+            models.Index(fields=['precio']),      
+            models.Index(fields=['aprobada']),    
         ]
 
+    def save(self, *args, **kwargs):
+        # Import local para evitar problemas de import circular
+        from .models import Historial
 
+        creando = self.pk is None
+        old = None
+        if not creando:
+            try:
+                old = Propiedad.objects.only('estado', 'precio').get(pk=self.pk)
+            except Propiedad.DoesNotExist:
+                pass
+
+        super().save(*args, **kwargs)
+
+        # Registrar historial al crear
+        if creando:
+            try:
+                Historial.objects.create(
+                    propiedad=self,
+                    accion='cambio_estado',
+                    descripcion=f"Estado inicial: {self.estado}",
+                )
+                
+                Historial.objects.create(
+                    propiedad=self,
+                    accion='actualizacion_precio',
+                    descripcion=f"Precio inicial: {self.precio}",
+                )
+            except Exception:
+                pass
+            return
+
+        # Registrar cambio de estado
+        if old and old.estado != self.estado:
+            try:
+                Historial.objects.create(
+                    propiedad=self,
+                    accion='cambio_estado',
+                    descripcion=f"Cambio de estado: {old.estado} → {self.estado}",
+                )
+            except Exception:
+                pass
+
+        # Registrar cambio de precio
+        if old and old.precio != self.precio:
+            try:
+                Historial.objects.create(
+                    propiedad=self,
+                    accion='actualizacion_precio',
+                    descripcion=f"Cambio de precio: {old.precio} → {self.precio}",
+                )
+            except Exception:
+                pass
+    
+    @property
+    def foto_principal(self):
+        fp = self.fotos.filter(principal=True).first()
+        return fp.foto.url if fp and fp.foto else None
+    
     def __str__(self):
         return f"{self.orientación} - {self.titulo} - {self.propietario.primer_nombre}"
-    
 
 
 
@@ -151,7 +226,7 @@ class Interesado(models.Model):
     telefono = models.CharField(max_length=20)
     email = models.EmailField(blank=True)
     fecha_registro = models.DateTimeField(default=timezone.now, editable=False)
-    
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,related_name="perfil_interesado")
 
     def clean(self):
         from .validators import normalizar_rut, validar_rut, validar_telefono_cl
@@ -177,6 +252,7 @@ class Interesado(models.Model):
 
 
 # Tabla Visitas:
+MAX_VISITAS_POR_DIA = 2 
 class Visita(models.Model):
     propiedad   = models.ForeignKey(Propiedad, on_delete=models.CASCADE, related_name='visitas')
     interesado  = models.ForeignKey(Interesado, on_delete=models.CASCADE, related_name='visitas')
@@ -191,7 +267,6 @@ class Visita(models.Model):
 
     def clean(self):
         from .utils import slots_futuro
-        
         hoy = timezone.localdate()
 
         # ventana futura
@@ -217,6 +292,16 @@ class Visita(models.Model):
             qs = qs.exclude(pk=self.pk)
         if qs.exists():
             raise ValidationError("Ese horario ya está reservado para la propiedad.")
+        
+        visitas_dia = Visita.objects.filter(
+            interesado=self.interesado,
+            fecha=self.fecha,
+            estado__in=["agendada", "confirmada"]  # considera solo activas
+        )
+        if self.pk:
+            visitas_dia = visitas_dia.exclude(pk=self.pk)
+        if visitas_dia.count() >= MAX_VISITAS_POR_DIA:
+            raise ValidationError(f"El interesado ya alcanzó el máximo de {MAX_VISITAS_POR_DIA} visitas para ese día.")
 
 # Tabla dias feriados
 class Feriado(models.Model):
@@ -232,20 +317,53 @@ class Feriado(models.Model):
 
 # Tabla Reservas
 class Reserva(models.Model):
-    propiedad = models.ForeignKey(Propiedad, on_delete=models.PROTECT, related_name="reservas")
-    interesado = models.ForeignKey(Interesado, on_delete=models.PROTECT, related_name="reservas")
-    fecha = models.DateTimeField(auto_now_add=True)
-    monto_reserva = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
-    activa = models.BooleanField(default=True)
+    propiedad = models.ForeignKey("Propiedad", on_delete=models.CASCADE, related_name="reservas", db_index=True)
+    interesado = models.ForeignKey("Interesado", on_delete=models.CASCADE, related_name="reservas", db_index=True)
+    creada_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, db_index=True)
+    fecha = models.DateTimeField(auto_now_add=True, db_index=True)
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    monto_reserva = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     notas = models.TextField(blank=True)
+    activa = models.BooleanField(default=True, db_index=True)
 
     class Meta:
-        indexes = [models.Index(fields=["activa"])]
+        indexes = [
+            models.Index(fields=["propiedad", "activa"]),
+            models.Index(fields=["expires_at"]),
+        ]
 
+    def clean(self):
+        # Solo una reserva activa por propiedad
+        if self.activa:
+            existe_otra = Reserva.objects.filter(propiedad=self.propiedad, activa=True).exclude(pk=self.pk).exists()
+            if existe_otra:
+                raise ValidationError("La propiedad ya tiene una reserva activa.")
+
+        # No permitir reserva si hay contrato vigente
+        from .models import Contrato
+        if Contrato.objects.filter(propiedad=self.propiedad, vigente=True).exists():
+            raise ValidationError("La propiedad ya posee un contrato vigente.")
+
+
+        # Debe tener fecha de vencimiento si está activa
+        if self.activa and not self.expires_at:
+            raise ValidationError("Debe definir 'expires_at' para la reserva activa.")
+
+        # expires_at > ahora
+        if self.expires_at and self.expires_at <= timezone.now():
+            raise ValidationError("La fecha de vencimiento debe ser futura.")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.activa:
+                # Cambia el estado de la propiedad a RESERVADA
+                self.propiedad.estado = "reservada"
+                self.propiedad.save(update_fields=["estado"])
     def __str__(self):
-        return f"Reserva {self.propiedad.orientación} - {self.interesado.nombre_completo}"
-    
-# Tabla Contratos
+        return f"{self.propiedad} - {self.interesado}"
+
 class Contrato(models.Model):
     TIPO = (("venta","Venta"),("arriendo","Arriendo"))
     propiedad = models.ForeignKey(Propiedad, on_delete=models.PROTECT, related_name="contratos")
@@ -254,13 +372,13 @@ class Contrato(models.Model):
     fecha_firma = models.DateField()
     precio_pactado = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
     vigente = models.BooleanField(default=True)
-    archivo_pdf = models.FileField(upload_to="contratos/", blank=True, null=True)
+    archivo_pdf = models.FileField(upload_to="contratos/", blank=True, null=True, validators=[validar_pdf])
 
     class Meta:
         indexes = [models.Index(fields=["tipo","vigente"])]
 
     def __str__(self):
-        return f"{self.tipo.title()} {self.propiedad.orientación} - {self.comprador_arrendatario.nombre_completo}"
+        return f"{self.tipo.title()} {self.propiedad.titulo} - {self.comprador_arrendatario.nombre_completo}"
     
 
 # Tabla Pago
@@ -287,22 +405,28 @@ class Pago(models.Model):
         return f"Pago {self.monto} - {self.contrato}"
     
 
-#Tabla foto principal de la propiedad
+
+from django.db import transaction
+
+
 class PropiedadFoto(models.Model):
-    propiedad = models.ForeignKey(Propiedad, on_delete=models.CASCADE, related_name="fotos")
-    foto = models.ImageField(upload_to="propiedades/fotos/")
-    orden = models.PositiveIntegerField(default=0)
-    principal = models.BooleanField(default=False)
+    propiedad = models.ForeignKey('Propiedad', on_delete=models.CASCADE, related_name='fotos')
+    foto = models.ImageField(upload_to='propiedades/fotos/', validators=[validar_imagen])
+    orden = models.PositiveIntegerField(default=0, db_index=True)
+    principal = models.BooleanField(default=False, db_index=True)
 
     class Meta:
-        ordering = ["propiedad","orden"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["propiedad"],
-                condition=models.Q(principal=True),
-                name="una_foto_por_propiedad",
-            )
-        ]
+        ordering = ['propiedad', 'orden']
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.principal:
+                (PropiedadFoto.objects
+                 .filter(propiedad=self.propiedad)
+                 .exclude(pk=self.pk)
+                 .update(principal=False))
+
 
 
 # Tabla documentos propiedad
@@ -313,4 +437,117 @@ class PropiedadDocumento(models.Model):
     subido = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.propiedad.codigo} - {self.nombre}"
+        return f"{self.propiedad.orientación} - {self.nombre}"
+    
+
+
+#Tabla historial de cambios
+class Historial(models.Model):
+
+    ACCION = [
+        ('cambio_estado', 'Cambio de estado'),
+        ('actualizacion_precio', 'Actualización de precio'),
+    ]
+
+    propiedad = models.ForeignKey(Propiedad, on_delete=models.CASCADE, related_name="historial")
+    fecha = models.DateTimeField(auto_now_add=True)
+    accion = models.CharField(max_length=100, choices= ACCION, default= 'cambio_estado')
+    descripcion = models.TextField(blank=True)
+    usuario = models.CharField(max_length=100, blank=True) 
+
+    class Meta:
+        ordering = ['-fecha']
+        indexes = [models.Index(fields=["accion", "fecha"])]
+
+    def __str__(self):
+        return f"{self.propiedad.titulo} - {self.accion} ({self.fecha.date()})"
+    
+
+
+#Tabla comisión
+
+class Comision(models.Model):
+    contrato = models.OneToOneField('Contrato', on_delete=models.CASCADE, related_name="comision")
+    porcentaje_comprador = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    porcentaje_vendedor  = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    fija_comprador = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    fija_vendedor  = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    notas = models.TextField(blank=True)
+
+    def total_estimada(self, base=None):
+        if base is None:
+            base = self.contrato.precio_pactado
+        return (
+            base * ((self.porcentaje_comprador + self.porcentaje_vendedor) / 100)
+            + self.fija_comprador + self.fija_vendedor
+        )
+    
+    def __str__(self):
+        return f"Comisión de {self.contrato}"
+    
+
+
+#Tabla cuota contrato
+class CuotaContrato(models.Model):
+    contrato = models.ForeignKey('Contrato', on_delete=models.CASCADE, related_name="cuotas")
+    vencimiento = models.DateField()
+    monto = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    pagada = models.BooleanField(default=False)
+    pago = models.ForeignKey("Pago", null=True, blank=True, on_delete=models.SET_NULL, related_name="cuotas_asociadas")
+
+    class Meta:
+        ordering = ["vencimiento"]
+        indexes = [models.Index(fields=["vencimiento", "pagada"])]
+
+    from django.db import transaction
+
+    def registrar_pago(self, *, monto, fecha=None, medio="transferencia", comprobante=None, notas=""):
+        # Marca esta cuota como pagada
+        if self.pagada:
+            raise ValidationError("Esta cuota ya está pagada.")
+        if monto != self.monto:
+            raise ValidationError("El monto del pago debe coincidir con el monto de la cuota.")
+
+        from .models import Pago 
+        if fecha is None:
+            fecha = timezone.localdate()
+
+        with transaction.atomic():
+            pago = Pago.objects.create(
+                contrato=self.contrato,
+                fecha=fecha,
+                monto=monto,
+                medio=medio,
+                comprobante=comprobante,
+                notas=notas,
+            )
+            self.pagada = True
+            self.pago = pago
+            self.save(update_fields=["pagada", "pago"])
+            return pago
+
+    def __str__(self):
+        estado = "Pagada" if self.pagada else "Pendiente"
+        return f"Cuota {self.contrato} - {self.vencimiento} ({estado})"
+    
+# Tabla notificaciones
+class Notificacion(models.Model):
+    TIPOS = [
+        ("RESERVA", "Reserva"),
+        ("VISITA", "Visita"),
+        ("PAGO", "Pago"),
+        ("SISTEMA", "Sistema"),
+    ]
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="notificaciones")
+    titulo = models.CharField(max_length=120)
+    mensaje = models.TextField()
+    tipo = models.CharField(max_length=16, choices=TIPOS, default="SISTEMA", db_index=True)
+    leida = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["tipo", "leida", "created_at"])]
+
+    def __str__(self):
+        return f"[{self.tipo}] {self.titulo}"

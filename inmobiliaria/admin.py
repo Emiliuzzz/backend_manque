@@ -1,10 +1,51 @@
 from django import forms
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
 from .models import *
 from .utils import slots_disponibles_para_propiedad
 
 def _choices_from_times(times):
     return [(t.strftime("%H:%M"), t.strftime("%H:%M")) for t in times]
+
+
+@admin.register(Usuario)
+class UsuarioAdmin(UserAdmin):
+    list_display = ("username", "email", "rol", "aprobado", "is_active", "is_staff", "is_superuser")
+    list_filter  = ("rol", "aprobado", "is_active", "is_staff", "is_superuser")
+    search_fields = ("username", "email")
+    ordering = ("username",)
+
+    fieldsets = UserAdmin.fieldsets + (
+        ("Rol y aprobación", {"fields": ("rol", "aprobado")}),
+    )
+
+    add_fieldsets = UserAdmin.add_fieldsets + (
+        ("Rol y aprobación", {"fields": ("rol", "aprobado")}),
+    )
+
+@admin.action(description="Aprobar propiedades seleccionadas")
+def aprobar_propiedades(modeladmin, request, queryset):
+    updated = queryset.update(aprobada=True)
+    modeladmin.message_user(request, f"{updated} propiedades aprobadas.")
+
+@admin.register(Propiedad)
+class PropiedadAdmin(admin.ModelAdmin):
+    list_display = ("id", "titulo", "ciudad", "tipo", "estado", "aprobada", "propietario_user")
+    list_filter  = ("aprobada", "estado", "tipo", "ciudad")
+    search_fields = ("titulo", "ciudad", "propietario__rut", "propietario__primer_nombre")
+    actions = [aprobar_propiedades]
+
+@admin.action(description="Marcar como leídas")
+def marcar_leidas(modeladmin, request, queryset):
+    updated = queryset.update(leida=True)
+    modeladmin.message_user(request, f"{updated} notificaciones marcadas como leídas.")
+
+@admin.register(Notificacion)
+class NotificacionAdmin(admin.ModelAdmin):
+    list_display = ("id", "usuario", "tipo", "titulo", "leida", "created_at")
+    list_filter = ("tipo", "leida", "created_at")
+    search_fields = ("titulo", "mensaje", "usuario__username", "usuario__email")
+    actions = [marcar_leidas]
 
 class VisitaAdminForm(forms.ModelForm):
     class Meta:
@@ -46,8 +87,7 @@ class VisitaAdmin(admin.ModelAdmin):
     form = VisitaAdminForm
     list_display = ("propiedad", "interesado", "fecha", "hora", "estado")
     list_filter = ("estado", "fecha", "hora")
-admin.site.register(Propietario)
-admin.site.register(Propiedad)
+admin.site.register(Propietario) 
 admin.site.register(Region)
 admin.site.register(Comuna)
 admin.site.register(Direccion_propietario)
