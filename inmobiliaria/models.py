@@ -123,16 +123,26 @@ class Propiedad(models.Model):
         ('este', 'Este'),
         ('oeste', 'Oeste'),
     ]
+    ESTADO_APROBACION = [
+        ('pendiente', 'Pendiente'),
+        ('aprobada', 'Aprobada'),
+        ('rechazada', 'Rechazada'),
+        ('pausada', 'Pausada'),
+    ]
+
+    # campo existente
+    aprobada = models.BooleanField(default=False)
+
 
     propietario = models.ForeignKey(Propietario, on_delete=models.CASCADE, related_name='propiedades')
-    orientación = models.CharField(max_length=30, choices=ORIENTACION, default='sur')
+    orientacion = models.CharField(max_length=30, choices=ORIENTACION, default='sur')
     titulo = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True)
     direccion = models.CharField(max_length=200)
     ciudad = models.CharField(max_length=120)
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES, default='casa')
-    dormitorios = models.PositiveIntegerField(default=0)
-    baños = models.PositiveIntegerField(default=1)
+    dormitorios = models.IntegerField(default=0,validators=[MinValueValidator(0)])
+    baos = models.IntegerField(default=0,validators=[MinValueValidator(0)])
     metros2 = models.DecimalField(max_digits=8, decimal_places=2, default=0,
                                   validators=[MinValueValidator(0)])
     precio = models.DecimalField(max_digits=12, decimal_places=2,
@@ -140,7 +150,8 @@ class Propiedad(models.Model):
     estado = models.CharField(max_length=12, choices=ESTADO_CHOICES, default='disponible')
     fecha_registro = models.DateTimeField(auto_now_add=True)
     propietario_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="propiedades_subidas",null=True, blank=True)
-    aprobada = models.BooleanField(default=False)
+    estado_aprobacion = models.CharField(max_length=20, choices=ESTADO_APROBACION, default='pendiente')
+    observacion_admin = models.TextField(blank=True, null=True)
 
     class Meta:
         verbose_name = 'Propiedad'
@@ -153,7 +164,7 @@ class Propiedad(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        # Import local para evitar problemas de import circular
+        self.aprobada = (self.estado_aprobacion == "aprobada")
         from .models import Historial
 
         creando = self.pk is None
@@ -212,7 +223,7 @@ class Propiedad(models.Model):
         return fp.foto.url if fp and fp.foto else None
     
     def __str__(self):
-        return f"{self.orientación} - {self.titulo} - {self.propietario.primer_nombre}"
+        return f"{self.orientacion} - {self.titulo} - {self.propietario.primer_nombre}"
 
 
 
@@ -250,7 +261,71 @@ class Interesado(models.Model):
     
 
 
+class SolicitudCliente(models.Model):
+    TIPO_OPERACION = [
+        ("COMPRA", "Compra"),
+        ("ARRIENDO", "Arriendo"),
+    ]
 
+    ESTADO_SOLICITUD = [
+        ("nueva", "Nueva"),
+        ("en_proceso", "En proceso"),
+        ("respondida", "Respondida"),
+        ("cerrada", "Cerrada"),
+    ]
+
+    interesado = models.ForeignKey(
+        Interesado,
+        on_delete=models.CASCADE,
+        related_name="solicitudes"
+    )
+
+    tipo_operacion = models.CharField(max_length=20, choices=TIPO_OPERACION)
+    tipo_propiedad = models.CharField(
+        max_length=20,
+        choices=Propiedad.TIPO_CHOICES,
+        default="casa",
+    )
+
+    ciudad = models.CharField(max_length=120)
+    comuna = models.CharField(max_length=120)
+
+    presupuesto_min = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+    )
+    presupuesto_max = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+    )
+
+    mensaje = models.TextField()
+
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_SOLICITUD,
+        default="nueva",
+        db_index=True,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["estado", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Solicitud de {self.interesado.nombre_completo} ({self.tipo_operacion} {self.tipo_propiedad})"
+    
+    
 # Tabla Visitas:
 MAX_VISITAS_POR_DIA = 2 
 class Visita(models.Model):
@@ -374,6 +449,12 @@ class Contrato(models.Model):
     vigente = models.BooleanField(default=True)
     archivo_pdf = models.FileField(upload_to="contratos/", blank=True, null=True, validators=[validar_pdf])
 
+    archivo_pdf = models.FileField(
+        upload_to='contratos/',
+        blank=True,
+        null=True,
+        verbose_name='Archivo PDF del contrato'
+    )
     class Meta:
         indexes = [models.Index(fields=["tipo","vigente"])]
 
@@ -401,6 +482,13 @@ class Pago(models.Model):
     comprobante = models.FileField(upload_to="pagos/", blank=True, null=True)
     notas = models.TextField(blank=True)
 
+    comprobante = models.FileField(
+        upload_to='pagos/',
+        blank=True,
+        null=True,
+        verbose_name='Comprobante / boleta'
+    )    
+    
     def __str__(self):
         return f"Pago {self.monto} - {self.contrato}"
     
@@ -437,7 +525,7 @@ class PropiedadDocumento(models.Model):
     subido = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.propiedad.orientación} - {self.nombre}"
+        return f"{self.propiedad.orientacion} - {self.nombre}"
     
 
 
@@ -458,6 +546,8 @@ class Historial(models.Model):
     class Meta:
         ordering = ['-fecha']
         indexes = [models.Index(fields=["accion", "fecha"])]
+        verbose_name = "Historial"
+        verbose_name_plural = "Historial"
 
     def __str__(self):
         return f"{self.propiedad.titulo} - {self.accion} ({self.fecha.date()})"
@@ -548,6 +638,8 @@ class Notificacion(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["tipo", "leida", "created_at"])]
+        verbose_name = "Notificacion"
+        verbose_name_plural = "Notificaciones"
 
     def __str__(self):
         return f"[{self.tipo}] {self.titulo}"

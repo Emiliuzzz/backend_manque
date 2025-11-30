@@ -23,22 +23,51 @@ class UsuarioAdmin(UserAdmin):
         ("Rol y aprobación", {"fields": ("rol", "aprobado")}),
     )
 
+# --- Acciones ---
+
 @admin.action(description="Aprobar propiedades seleccionadas")
 def aprobar_propiedades(modeladmin, request, queryset):
     updated = queryset.update(aprobada=True)
     modeladmin.message_user(request, f"{updated} propiedades aprobadas.")
+
+@admin.action(description="Marcar notificaciones como leídas")
+def marcar_leidas(modeladmin, request, queryset):
+    updated = queryset.update(leida=True)
+    modeladmin.message_user(request, f"{updated} notificaciones marcadas como leídas.")
+
+# --- Admin de Propiedad ---
 
 @admin.register(Propiedad)
 class PropiedadAdmin(admin.ModelAdmin):
     list_display = ("id", "titulo", "ciudad", "tipo", "estado", "aprobada", "propietario_user")
     list_filter  = ("aprobada", "estado", "tipo", "ciudad")
     search_fields = ("titulo", "ciudad", "propietario__rut", "propietario__primer_nombre")
+    list_display_links = ("titulo",)  # <— asegura el link a la vista de edición
     actions = [aprobar_propiedades]
 
-@admin.action(description="Marcar como leídas")
-def marcar_leidas(modeladmin, request, queryset):
-    updated = queryset.update(leida=True)
-    modeladmin.message_user(request, f"{updated} notificaciones marcadas como leídas.")
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser or getattr(request.user, "rol", "") == "ADMIN":
+            return True
+
+        if obj is None:
+            return super().has_change_permission(request, obj)
+
+        # Propietario: puede editar SOLO si es el dueño y NO está aprobada
+        if getattr(request.user, "rol", "") == "PROPIETARIO":
+            return (obj.propietario_user_id == request.user.id) and (not obj.aprobada)
+
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        if request.user.is_superuser or getattr(request.user, "rol", "") == "ADMIN":
+            return super().get_readonly_fields(request, obj)
+
+        # Propietario: si ya está aprobada, deja todo en solo lectura
+        if getattr(request.user, "rol", "") == "PROPIETARIO" and obj and obj.aprobada:
+            return [f.name for f in self.model._meta.fields] + [m.name for m in self.model._meta.many_to_many]
+
+        return super().get_readonly_fields(request, obj)
+    
 
 @admin.register(Notificacion)
 class NotificacionAdmin(admin.ModelAdmin):
@@ -87,6 +116,20 @@ class VisitaAdmin(admin.ModelAdmin):
     form = VisitaAdminForm
     list_display = ("propiedad", "interesado", "fecha", "hora", "estado")
     list_filter = ("estado", "fecha", "hora")
+
+
+@admin.register(SolicitudCliente)
+class SolicitudClienteAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'interesado', 'tipo_operacion', 'tipo_propiedad',
+        'ciudad', 'comuna', 'estado', 'created_at'
+    )
+    search_fields = ('interesado__primer_nombre', 'interesado__rut', 'ciudad', 'comuna')
+    list_filter = ('estado', 'tipo_operacion', 'tipo_propiedad', 'ciudad')
+    ordering = ('-created_at',)
+
+    
+
 admin.site.register(Propietario) 
 admin.site.register(Region)
 admin.site.register(Comuna)
@@ -94,6 +137,7 @@ admin.site.register(Direccion_propietario)
 admin.site.register(Interesado)
 admin.site.register(Reserva)
 admin.site.register(Contrato)
+admin.site.register(Historial)
 admin.site.register(Pago)
 admin.site.register(PropiedadFoto)
 admin.site.register(PropiedadDocumento)

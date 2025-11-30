@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.db import models
 from datetime import timedelta
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 class RegionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Region
@@ -36,10 +37,10 @@ class PropietarioDireccionSerializer(serializers.ModelSerializer):
 
 class PropietarioSerializer(serializers.ModelSerializer):
     direcciones = PropietarioDireccionSerializer(many=True, read_only=True)
-
     class Meta:
         model = Propietario
-        fields = ['id','primer_nombre', "segundo_nombre", "primer_apellido", "segundo_apellido",'rut','telefono','email','direcciones']
+        fields = ['id','primer_nombre', "segundo_nombre", "primer_apellido",
+                  "segundo_apellido",'rut','telefono','email','direcciones']
 
     def validate_rut(self, value):
         v = normalizar_rut(value)
@@ -51,10 +52,87 @@ class PropietarioSerializer(serializers.ModelSerializer):
             validar_telefono_cl(value)
         return value
 
+class AdminPropietarioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Propietario
+        fields = [
+            'id',
+            'primer_nombre',
+            'segundo_nombre',
+            'primer_apellido',
+            'segundo_apellido',
+            'rut',
+            'telefono',
+            'email',
+        ]
+
+    def validate_rut(self, value):
+        v = normalizar_rut(value)
+        validar_rut(v)
+        return v
+
+    def validate_telefono(self, value):
+        if value:
+            validar_telefono_cl(value)
+        return value
+
+
+class AdminPropietarioBasicoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Propietario
+        fields = [
+            'id',
+            'primer_nombre',
+            'segundo_nombre',
+            'primer_apellido',
+            'segundo_apellido',
+            'rut',
+            'email',
+        ]
+
+
+class AdminPropiedadSerializer(serializers.ModelSerializer):
+    propietario = AdminPropietarioBasicoSerializer(read_only=True)
+    propietario_id = serializers.PrimaryKeyRelatedField(
+        source='propietario',
+        queryset=Propietario.objects.all(),
+        write_only=True,
+    )
+
+    class Meta:
+        model = Propiedad
+        fields = [
+            'id',
+            'propietario',
+            'propietario_id',
+            'titulo',
+            'direccion',
+            'ciudad',
+            'descripcion',
+            'tipo',
+            'dormitorios',
+            'baos',
+            'metros2',
+            'precio',
+            'estado',
+            'estado_aprobacion',
+            'orientacion',
+        ]
+  
 class PropiedadSerializer(serializers.ModelSerializer):
     class Meta:
         model = Propiedad
         fields = "__all__"
+
+    def validate(self, attrs):
+        tipo = attrs.get("tipo", getattr(self.instance, "tipo", None))
+
+        if tipo in ["terreno", "parcela"]:
+            attrs["dormitorios"] = 0
+            attrs["baos"] = 0
+
+        return attrs
+
         
 class InteresadoSerializer(serializers.ModelSerializer):
     class Meta:
@@ -121,20 +199,22 @@ class PagoSerializer(serializers.ModelSerializer):
     contrato_id = serializers.IntegerField(source="contrato.id", read_only=True)
     propiedad = serializers.SerializerMethodField()
     cliente = serializers.SerializerMethodField()
+    comprobante_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Pago
-        fields = (
-            "id",
-            "contrato_id",
-            "fecha",
-            "monto",
-            "medio",
-            "comprobante",
-            "notas",
-            "propiedad",
-            "cliente",
-        )
+        fields = [
+            'id', 'contrato_id', 'fecha', 'monto', 'medio', 'notas',
+            'propiedad', 'cliente',
+            'comprobante_url',  
+        ]
+
+    def get_comprobante_url(self, obj):
+        request = self.context.get('request')
+        if obj.comprobante:
+            url = obj.comprobante.url
+            return request.build_absolute_uri(url) if request else url
+        return None
 
     def get_propiedad(self, obj):
         p = obj.contrato.propiedad
@@ -178,6 +258,18 @@ class PropiedadConFotosSerializer(serializers.ModelSerializer):
         ]
 
 
+class PropiedadFotoSerializer(serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PropiedadFoto
+        fields = ("id", "propiedad", "foto", "url", "orden", "principal")
+        read_only_fields = ("id", "url")
+
+    def get_url(self, obj):
+        return obj.foto.url if obj.foto else None
+
+
 class PropiedadDocumentoSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropiedadDocumento
@@ -187,10 +279,7 @@ class NotificacionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notificacion
         fields = "__all__"
-        read_only_fields = ["id", "created_at"]
-
-        
-Usuario = get_user_model()
+        read_only_fields = ["id", "created_at", "usuario"]
 
 class UsuarioRegistroSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -206,7 +295,6 @@ class UsuarioRegistroSerializer(serializers.ModelSerializer):
             email=validated_data.get("email"),
             rol=rol,
         )
-        # Si se registra como PROPIETARIO, queda pendiente de aprobación
         if rol == "PROPIETARIO":
             user.aprobado = False
             user.is_active = True 
@@ -214,6 +302,8 @@ class UsuarioRegistroSerializer(serializers.ModelSerializer):
         user.save()
         return user
     
+
+
 
 class MiniPropiedadSerializer(serializers.ModelSerializer):
     class Meta:
@@ -227,6 +317,15 @@ class MiniInteresadoSerializer(serializers.ModelSerializer):
         model = Interesado
         fields = ("id", "nombre_completo", "rut", "email", "telefono")
 
+class SolicitudClienteSerializer(serializers.ModelSerializer):
+    interesado = MiniInteresadoSerializer(read_only=True)
+
+    class Meta:
+        model = SolicitudCliente
+        fields = "__all__"
+        read_only_fields = ("id", "created_at", "interesado")
+
+
 class ContratoSerializer(serializers.ModelSerializer):
     propiedad = MiniPropiedadSerializer(read_only=True)
     comprador_arrendatario = MiniInteresadoSerializer(read_only=True)
@@ -235,6 +334,7 @@ class ContratoSerializer(serializers.ModelSerializer):
     tipo_display = serializers.CharField(source="get_tipo_display", read_only=True)
     total_pagos = serializers.SerializerMethodField()
     saldo = serializers.SerializerMethodField()
+    archivo_pdf_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Contrato
@@ -249,6 +349,7 @@ class ContratoSerializer(serializers.ModelSerializer):
             "archivo_pdf",
             "total_pagos",
             "saldo",
+            'archivo_pdf_url'
         )
 
     def get_total_pagos(self, obj):
@@ -258,6 +359,12 @@ class ContratoSerializer(serializers.ModelSerializer):
     def get_saldo(self, obj):
         total = self.get_total_pagos(obj)
         return (obj.precio_pactado or 0) - total
+    def get_archivo_pdf_url(self, obj):
+        request = self.context.get('request')
+        if obj.archivo_pdf:
+            url = obj.archivo_pdf.url
+            return request.build_absolute_uri(url) if request else url
+        return None
 
 class ReservaSerializer(serializers.ModelSerializer):
     propiedad = MiniPropiedadSerializer(read_only=True)
@@ -299,6 +406,27 @@ class ReservaSerializer(serializers.ModelSerializer):
 
     
     
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+
+        token['username'] = user.username
+        token['email'] = user.email
+        token['rol'] = getattr(user, 'rol', 'CLIENTE') 
+        return token
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        data['username'] = self.user.username
+        data['email'] = self.user.email
+        data['rol'] = getattr(self.user, 'rol', 'CLIENTE')
+        return data
     
-    
+
+class HistorialSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Historial
+        fields = ["id", "usuario", "fecha", "accion", "descripcion"]
 

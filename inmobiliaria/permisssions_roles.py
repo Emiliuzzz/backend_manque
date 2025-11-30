@@ -15,37 +15,49 @@ class IsCliente(BasePermission):
 class PropiedadPermission(BasePermission):
 
     def has_permission(self, request, view):
-        # Lectura para todos
+        # Lecturas siempre permitidas
         if request.method in SAFE_METHODS:
             return True
 
-        # Para escribir, debe estar autenticado y ser ADMIN o PROPIETARIO
-        if not request.user or not request.user.is_authenticated:
+        user = request.user
+        if not user or not user.is_authenticated:
             return False
 
-        return getattr(request.user, "rol", "") in ("ADMIN", "PROPIETARIO")
+        rol = getattr(user, "rol", "")
 
-    def has_object_permission(self, request, view, obj):
-        if request.method in SAFE_METHODS:
-            return True
-
-        rol = getattr(request.user, "rol", "")
-
-        # ADMIN puede todo
+        # Admin puede hacer todo
         if rol == "ADMIN":
             return True
 
-        # PROPIETARIO: solo sus propiedades y NO aprobadas (para evitar cambios post-aprobación)
+        # Propietario puede crear y actualizar
+        if rol == "PROPIETARIO" and view.action in ["create", "update", "partial_update"]:
+            return True
+
+
+        return False
+
+    def has_object_permission(self, request, view, obj):
+        # Lecturas permitidas
+        if request.method in SAFE_METHODS:
+            return True
+
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+
+        rol = getattr(user, "rol", "")
+
+        # Admin siempre puede
+        if rol == "ADMIN":
+            return True
+
+        # Propietario solo puede modificar sus propias propiedades
         if rol == "PROPIETARIO":
-            return (obj.propietario_user_id == request.user.id) and (not obj.aprobada)
+            return obj.propietario_user_id == user.id
 
         return False
 
 class NotificacionPermission(BasePermission):
-    """
-    ADMIN: acceso total.
-    Otros: solo sus propias notificaciones.
-    """
     def has_object_permission(self, request, view, obj):
         if getattr(request.user, "rol", "") == "ADMIN":
             return True
