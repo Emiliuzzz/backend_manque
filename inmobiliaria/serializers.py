@@ -97,6 +97,7 @@ class AdminPropiedadSerializer(serializers.ModelSerializer):
         source='propietario',
         queryset=Propietario.objects.all(),
         write_only=True,
+        required=False,  
     )
 
     class Meta:
@@ -367,17 +368,26 @@ class ContratoSerializer(serializers.ModelSerializer):
         return None
 
 class ReservaSerializer(serializers.ModelSerializer):
+
     propiedad = MiniPropiedadSerializer(read_only=True)
     interesado = MiniInteresadoSerializer(read_only=True)
 
+
+    propiedad_id = serializers.PrimaryKeyRelatedField(
+        queryset=Propiedad.objects.all(),
+        write_only=True,
+        source="propiedad",
+    )
+
     vencida = serializers.SerializerMethodField()
-    estado_reserva = serializers.SerializerMethodField() 
+    estado_reserva = serializers.SerializerMethodField()
 
     class Meta:
         model = Reserva
         fields = (
             "id",
             "propiedad",
+            "propiedad_id",  
             "interesado",
             "creada_por",
             "fecha",
@@ -388,23 +398,43 @@ class ReservaSerializer(serializers.ModelSerializer):
             "vencida",
             "estado_reserva",
         )
-        read_only_fields = ("id", "fecha", "activa")
+        read_only_fields = (
+            "id",
+            "fecha",
+            "activa",
+            "creada_por",
+            "interesado",
+            "propiedad",
+        )
 
     def create(self, validated_data):
+        request = self.context.get("request")
+        if request is None or not request.user.is_authenticated:
+            raise ValidationError("Debes iniciar sesión para crear una reserva.")
+
+        usuario = request.user
+
+        interesado, _ = Interesado.objects.get_or_create(
+            usuario=usuario,
+            defaults={
+                "nombre_completo": usuario.username or usuario.email or "Interesado sin nombre",
+            },
+        )
+
+        validated_data["interesado"] = interesado
+
         if not validated_data.get("expires_at"):
             validated_data["expires_at"] = timezone.now() + timedelta(hours=72)
+
         return super().create(validated_data)
-    
+
     def get_vencida(self, obj):
-        from django.utils import timezone
         return bool(obj.expires_at and obj.expires_at <= timezone.now())
 
     def get_estado_reserva(self, obj):
         if not obj.activa:
             return "cancelada"
         return "vencida" if self.get_vencida(obj) else "activa"
-
-    
     
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):

@@ -408,17 +408,25 @@ class Reserva(models.Model):
         ]
 
     def clean(self):
+        if not self.propiedad_id:
+            return
+
         # Solo una reserva activa por propiedad
         if self.activa:
-            existe_otra = Reserva.objects.filter(propiedad=self.propiedad, activa=True).exclude(pk=self.pk).exists()
+            existe_otra = Reserva.objects.filter(
+                propiedad_id=self.propiedad_id,
+                activa=True
+            ).exclude(pk=self.pk).exists()
             if existe_otra:
                 raise ValidationError("La propiedad ya tiene una reserva activa.")
 
         # No permitir reserva si hay contrato vigente
         from .models import Contrato
-        if Contrato.objects.filter(propiedad=self.propiedad, vigente=True).exists():
+        if Contrato.objects.filter(
+            propiedad_id=self.propiedad_id,
+            vigente=True
+        ).exists():
             raise ValidationError("La propiedad ya posee un contrato vigente.")
-
 
         # Debe tener fecha de vencimiento si está activa
         if self.activa and not self.expires_at:
@@ -432,10 +440,11 @@ class Reserva(models.Model):
         self.clean()
         with transaction.atomic():
             super().save(*args, **kwargs)
-            if self.activa:
+            if self.activa and self.propiedad_id:
                 # Cambia el estado de la propiedad a RESERVADA
                 self.propiedad.estado = "reservada"
                 self.propiedad.save(update_fields=["estado"])
+
     def __str__(self):
         return f"{self.propiedad} - {self.interesado}"
 

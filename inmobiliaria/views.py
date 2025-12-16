@@ -212,7 +212,6 @@ class ReservaViewSet(viewsets.ModelViewSet):
 
         # ---- Cancelar ----
         reserva.activa = False
-        reserva.estado_reserva = "cancelada"
         reserva.save()
 
         # ---- Notificaciones ----
@@ -241,7 +240,6 @@ class ReservaViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(reserva)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
 
     def perform_create(self, serializer):
         reserva = serializer.save(creada_por=self.request.user)
@@ -252,7 +250,6 @@ class ReservaViewSet(viewsets.ModelViewSet):
         if not propietario_user and hasattr(prop, "propietario"):
             propietario_user = getattr(prop.propietario, "usuario", None)
 
-        # cliente 
         cliente_user = getattr(interesado, "usuario", None)
 
         titulo = f"Nueva reserva en '{prop.titulo}'"
@@ -270,6 +267,7 @@ class ReservaViewSet(viewsets.ModelViewSet):
                 f"'{prop.titulo}' por ${reserva.monto_reserva:,.0f}."
             )
             notificar_usuario(cliente_user, titulo, msg_cli, tipo="RESERVA")
+
     
     
 class ContratoViewSet(viewsets.ModelViewSet):
@@ -460,7 +458,7 @@ class PropiedadFotoViewSet(viewsets.ModelViewSet):
     serializer_class = PropiedadFotoSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["propiedad"]  # permite ?propiedad=1
+    filterset_fields = ["propiedad"] 
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -586,9 +584,24 @@ class SolicitudClienteViewSet(viewsets.ModelViewSet):
             raise ValidationError("No se encontró un perfil de interesado asociado a tu usuario.")
         serializer.save(interesado=interesado)
 
+class MisSolicitudesClienteView(generics.ListAPIView):
+    serializer_class = SolicitudClienteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return (
+            SolicitudCliente.objects
+            .select_related("interesado")
+            .filter(interesado__usuario=user)
+            .order_by("-created_at")
+        )
+
+
 class MisContratosView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = ContratoSerializer
+    
     def get_queryset(self):
         user = self.request.user
         rol = getattr(user, "rol", "")
@@ -680,45 +693,43 @@ class MisPropiedadesView(generics.ListAPIView):
         return Propiedad.objects.none()
 
 
+User = get_user_model()
+
+
 class RegisterView(APIView):
     permission_classes = [AllowAny]
 
-    def post(self, request):
-        nombre = (request.data.get('nombre') or '').strip()
-        email = (request.data.get('email') or '').strip()
-        password = request.data.get('password') or ''
+    def post(self, request, *args, **kwargs):
+        nombre = request.data.get("nombre_completo") or request.data.get("nombre")
+        email = request.data.get("email")
+        password = request.data.get("password")
 
-        if not email or not password:
+        if not nombre or not email or not password:
             return Response(
-                {'detail': 'Email y contraseña son obligatorios.'},
-                status=status.HTTP_400_BAD_REQUEST
+                {"detail": "Faltan datos (nombre, email o contraseña)."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        username = email.lower()   # podemos usar el correo como username
+        username = email  
 
-        if user.objects.filter(username=username).exists():
+
+        if User.objects.filter(username=username).exists():
             return Response(
-                {'detail': 'Ya existe un usuario con ese correo.'},
-                status=status.HTTP_400_BAD_REQUEST
+                {"detail": "Ya existe un usuario con ese email."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-
-        user = user.objects.create_user(
+        user = User.objects.create_user(
             username=username,
             email=email,
             password=password,
+            first_name=nombre,
         )
-
-
-        if hasattr(user, "first_name"):
-            user.first_name = nombre
-            user.save()
 
         return Response(
-            {'detail': 'Usuario creado correctamente.'},
-            status=status.HTTP_201_CREATED
+            {"detail": "Usuario creado correctamente."},
+            status=status.HTTP_201_CREATED,
         )
-    
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer

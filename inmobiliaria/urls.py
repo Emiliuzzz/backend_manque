@@ -39,6 +39,7 @@ from .views import (
     MisPropiedadesView,
     MiPerfilPropietarioView,
     MiPerfilClienteView,
+    MisSolicitudesClienteView
 )
 
 router = routers.DefaultRouter()
@@ -82,7 +83,7 @@ urlpatterns = [
     path('api/mis-propiedades/', MisPropiedadesView.as_view(), name='mis-propiedades'),
     path('api/mi-perfil/propietario/', MiPerfilPropietarioView.as_view(), name='mi-perfil-propietario'),
     path('api/mi-perfil/cliente/', MiPerfilClienteView.as_view(), name='mi-perfil-cliente'),
-
+    path('api/mis-solicitudes-cliente/',MisSolicitudesClienteView.as_view(),name='mis-solicitudes-cliente'),
     # 🔹 ENDPOINT RESUMEN ADMIN
     path(
         'api/admin/resumen/',
@@ -96,12 +97,32 @@ urlpatterns = [
         views_admin.AdminPropietarioListCreateView.as_view(),
         name='admin-propietarios'
     ),
+        path(
+        'api/admin/propietarios/<int:pk>/',
+        views_admin.AdminPropietarioRetrieveUpdateView.as_view(),
+        name='admin-propietarios-detalle'
+    ),
+
     path(
         'api/admin/propiedades/',
         views_admin.AdminPropiedadListCreateView.as_view(),
         name='admin-propiedades'
     ),
-
+    path(
+        'api/admin/propiedades/<int:pk>/',
+        views_admin.AdminPropiedadRetrieveUpdateView.as_view(),
+        name='admin-propiedad-detalle'
+    ),
+    path(
+        "api/admin/solicitudes-cliente/",
+        views_admin.AdminSolicitudClienteListView.as_view(),
+        name="admin-solicitudes-cliente-list",
+    ),
+    path(
+        "api/admin/solicitudes-cliente/<int:pk>/",
+        views_admin.AdminSolicitudClienteEstadoUpdateView.as_view(),
+        name="admin-solicitudes-cliente-update",
+    ),
     # API base 
     path('api/', include(router.urls)),
 ]
