@@ -42,7 +42,7 @@ class PropiedadAdmin(admin.ModelAdmin):
     list_display = ("id", "titulo", "ciudad", "tipo", "estado", "aprobada", "propietario_user")
     list_filter  = ("aprobada", "estado", "tipo", "ciudad")
     search_fields = ("titulo", "ciudad", "propietario__rut", "propietario__primer_nombre")
-    list_display_links = ("titulo",)  # <— asegura el link a la vista de edición
+    list_display_links = ("titulo",) 
     actions = [aprobar_propiedades]
 
     def has_change_permission(self, request, obj=None):

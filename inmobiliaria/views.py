@@ -8,14 +8,13 @@ from django.db.models import Sum, Count, Q
 from rest_framework import viewsets, status, generics, filters, permissions
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.views import APIView
+
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.exceptions import PermissionDenied, NotFound
+from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from django.contrib.auth import get_user_model
-from django.contrib.auth.hashers import make_password
 
 from .models import *
 from .serializers import (
@@ -32,16 +31,10 @@ from .serializers import (
     PropiedadFotoSerializer,
     PropiedadDocumentoSerializer,
     NotificacionSerializer,
-    UsuarioRegistroSerializer,
-    MiniPropiedadSerializer,
-    MiniInteresadoSerializer,
     ContratoSerializer,
     ReservaSerializer,
-    CustomTokenObtainPairSerializer,
     HistorialSerializer,
     SolicitudClienteSerializer,
-    AdminPropietarioSerializer,
-    AdminPropiedadSerializer,
 )
 
 from .notifications import notificar_usuario
@@ -50,7 +43,7 @@ from .config import *
 from .utils import *
 from .permissions import ReadOnlyOrAdminAsesor
 
-from .permisssions_roles import PropiedadPermission, IsAdmin, IsCliente, IsPropietario, NotificacionPermission
+from .permisssions_roles import PropiedadPermission, IsAdmin, NotificacionPermission
 
 from .filters import PropiedadFilter
 
@@ -347,7 +340,7 @@ class PropiedadViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = PropiedadFilter
     search_fields = ["titulo", "descripcion", "ciudad", "propietario__primer_nombre", "propietario__rut"]
-    ordering_fields = ["precio", "metros2", "dormitorios", "banos", "fecha_registro"]
+    ordering_fields = ["precio", "metros2", "dormitorios", "baos", "fecha_registro"]
     ordering = ["-fecha_registro"]
 
     def get_serializer_class(self):
@@ -584,278 +577,9 @@ class SolicitudClienteViewSet(viewsets.ModelViewSet):
             raise ValidationError("No se encontró un perfil de interesado asociado a tu usuario.")
         serializer.save(interesado=interesado)
 
-class MisSolicitudesClienteView(generics.ListAPIView):
-    serializer_class = SolicitudClienteSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        return (
-            SolicitudCliente.objects
-            .select_related("interesado")
-            .filter(interesado__usuario=user)
-            .order_by("-created_at")
-        )
 
 
-class MisContratosView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = ContratoSerializer
     
-    def get_queryset(self):
-        user = self.request.user
-        rol = getattr(user, "rol", "")
-        if rol == "ADMIN":
-            return Contrato.objects.all().select_related("comprador_arrendatario", "propiedad")
-        if rol == "CLIENTE":
-            return Contrato.objects.filter(
-                comprador_arrendatario__usuario=user
-            ).select_related("comprador_arrendatario", "propiedad")
-        if rol == "PROPIETARIO":
-            return Contrato.objects.filter(
-                propiedad__propietario_user=user
-            ).select_related("comprador_arrendatario", "propiedad")
-        return Contrato.objects.none()
-
-class MisPagosView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = PagoSerializer
-    def get_queryset(self):
-        user = self.request.user
-        rol = getattr(user, "rol", "")
-        if rol == "ADMIN":
-            return Pago.objects.all().select_related("contrato", "contrato__comprador_arrendatario", "contrato__propiedad")
-        if rol == "CLIENTE":
-            return Pago.objects.filter(
-                contrato__comprador_arrendatario__usuario=user
-            ).select_related("contrato", "contrato__comprador_arrendatario", "contrato__propiedad")
-        if rol == "PROPIETARIO":
-            return Pago.objects.filter(
-                contrato__propiedad__propietario_user=user
-            ).select_related("contrato", "contrato__comprador_arrendatario", "contrato__propiedad")
-        return Pago.objects.none()
-
-class MisReservasView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = ReservaSerializer
-    def get_queryset(self):
-        user = self.request.user
-        rol = getattr(user, "rol", "")
-        if rol == "ADMIN":
-            return Reserva.objects.all().select_related("interesado", "propiedad")
-        if rol == "CLIENTE":
-            return Reserva.objects.filter(
-                interesado__usuario=user
-            ).select_related("interesado", "propiedad")
-        if rol == "PROPIETARIO":
-            return Reserva.objects.filter(
-                propiedad__propietario_user=user
-            ).select_related("interesado", "propiedad")
-        return Reserva.objects.none()
-    
-class CatalogoPropiedadesView(generics.ListAPIView):
-    permission_classes = [AllowAny]
-    serializer_class = PropiedadConFotosSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-
-    # filtros básicos
-    filterset_fields = {
-        "ciudad": ["exact", "icontains"],
-        "tipo": ["exact"],
-        "dormitorios": ["gte", "lte"],
-        "baos": ["gte", "lte"],     
-        "precio": ["gte", "lte"],
-    }
-    search_fields = ["titulo", "descripcion", "ciudad"]
-    ordering_fields = ["precio", "metros2", "dormitorios", "baos", "fecha_registro"]
-    ordering = ["-fecha_registro"]
-
-    def get_queryset(self):
-        return Propiedad.objects.filter(aprobada=True).order_by("-fecha_registro")
-
-
-class MisPropiedadesView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = PropiedadConFotosSerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        rol = getattr(user, "rol", "")
-        if rol == "PROPIETARIO":
-            return Propiedad.objects.filter(
-                propietario_user=user
-            ).order_by("-fecha_registro")
-
-        if rol == "ADMIN":
-            return Propiedad.objects.all().order_by("-fecha_registro")
-
-        # Cliente no debería ver "mis propiedades"
-        return Propiedad.objects.none()
-
-
-User = get_user_model()
-
-
-class RegisterView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request, *args, **kwargs):
-        nombre = request.data.get("nombre_completo") or request.data.get("nombre")
-        email = request.data.get("email")
-        password = request.data.get("password")
-
-        if not nombre or not email or not password:
-            return Response(
-                {"detail": "Faltan datos (nombre, email o contraseña)."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        username = email  
-
-
-        if User.objects.filter(username=username).exists():
-            return Response(
-                {"detail": "Ya existe un usuario con ese email."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        user = User.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-            first_name=nombre,
-        )
-
-        return Response(
-            {"detail": "Usuario creado correctamente."},
-            status=status.HTTP_201_CREATED,
-        )
-
-class CustomTokenObtainPairView(TokenObtainPairView):
-    serializer_class = CustomTokenObtainPairSerializer
-
-class MiPerfilPropietarioView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        email = (request.user.email or "").lower()
-        if not email:
-            return Response(
-                {"detail": "Tu usuario no tiene email asociado."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        propietario = Propietario.objects.filter(email__iexact=email).first()
-        if not propietario:
-            return Response(
-                {"detail": "No se encontró un propietario asociado a tu cuenta."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        data = PropietarioSerializer(propietario).data
-        return Response(data, status=status.HTTP_200_OK)
-
-    def put(self, request):
-        email = (request.user.email or "").lower()
-        propietario = Propietario.objects.filter(email__iexact=email).first()
-        if not propietario:
-            return Response(
-                {"detail": "No se encontró un propietario asociado a tu cuenta."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        serializer = PropietarioSerializer(propietario, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
-    
-
-class MiPerfilClienteView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        user = request.user
-
-        interesado = Interesado.objects.filter(usuario=user).first()
-        if not interesado:
-            return Response(
-                {"detail": "No se encontró un perfil de cliente asociado a tu cuenta."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        data = InteresadoSerializer(interesado).data
-        return Response(data, status=status.HTTP_200_OK)
-
-    def put(self, request):
-        user = request.user
-        interesado = Interesado.objects.filter(usuario=user).first()
-        if not interesado:
-            return Response(
-                {"detail": "No se encontró un perfil de cliente asociado a tu cuenta."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        serializer = InteresadoSerializer(interesado, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated, IsAdmin])
-def admin_resumen(request):
-    ahora = timezone.now()
-    hoy = ahora.date()
-    inicio_mes = hoy.replace(day=1)
-
-    propiedades_pendientes = Propiedad.objects.filter(
-        estado_aprobacion="pendiente"
-    ).count()
-
-    reservas_activas = Reserva.objects.filter(
-        activa=True,
-        expires_at__gt=ahora,
-    ).count()
-
-    reservas_vencidas = Reserva.objects.filter(
-        activa=True,
-        expires_at__lte=ahora,
-    ).count()
-
-    solicitudes_nuevas = SolicitudCliente.objects.filter(
-        estado="nueva"
-    ).count()
-
-    contratos_vigentes = Contrato.objects.filter(
-        vigente=True
-    ).count()
-
-    pagos_mes_qs = Pago.objects.filter(fecha__gte=inicio_mes)
-    pagos_mes_agg = pagos_mes_qs.aggregate(
-        total=Sum("monto"),
-        cantidad=Count("id"),
-    )
-    pagos_mes_monto = pagos_mes_agg["total"] or 0
-    pagos_mes_count = pagos_mes_agg["cantidad"] or 0
-
-    notificaciones_no_leidas = Notificacion.objects.filter(
-        leida=False
-    ).count()
-
-    data = {
-        "propiedades_pendientes": propiedades_pendientes,
-        "reservas_activas": reservas_activas,
-        "reservas_vencidas": reservas_vencidas,
-        "solicitudes_nuevas": solicitudes_nuevas,
-        "contratos_vigentes": contratos_vigentes,
-        "pagos_mes_monto": pagos_mes_monto,
-        "pagos_mes_count": pagos_mes_count,
-        "notificaciones_no_leidas": notificaciones_no_leidas,
-    }
-    return Response(data, status=status.HTTP_200_OK)
-
-
 class IsAdminOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         user = request.user
@@ -865,3 +589,17 @@ class IsAdminOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return es_admin
         return es_admin
+
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        # Campos extra en el JWT
+        token["email"] = user.email
+        token["rol"] = getattr(user, "rol", "")
+        return token
+
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer

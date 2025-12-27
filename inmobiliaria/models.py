@@ -24,13 +24,20 @@ class Usuario(AbstractUser):
         return f"{self.username} ({self.get_rol_display()})"
     
 class Propietario(models.Model):
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="perfil_propietario",
+    )
     primer_nombre = models.CharField(max_length=100)
     segundo_nombre = models.CharField(max_length=100)
     primer_apellido = models.CharField(max_length=100)
     segundo_apellido = models.CharField(max_length=100)
     rut = models.CharField(max_length=20, unique=True)
     telefono = models.CharField(max_length=20, unique=True)
-    email = models.EmailField(blank=True)
+    email = models.EmailField(blank=False)
 
 
     def clean(self):

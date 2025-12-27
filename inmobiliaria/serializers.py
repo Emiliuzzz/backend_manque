@@ -52,74 +52,7 @@ class PropietarioSerializer(serializers.ModelSerializer):
             validar_telefono_cl(value)
         return value
 
-class AdminPropietarioSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Propietario
-        fields = [
-            'id',
-            'primer_nombre',
-            'segundo_nombre',
-            'primer_apellido',
-            'segundo_apellido',
-            'rut',
-            'telefono',
-            'email',
-        ]
 
-    def validate_rut(self, value):
-        v = normalizar_rut(value)
-        validar_rut(v)
-        return v
-
-    def validate_telefono(self, value):
-        if value:
-            validar_telefono_cl(value)
-        return value
-
-
-class AdminPropietarioBasicoSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Propietario
-        fields = [
-            'id',
-            'primer_nombre',
-            'segundo_nombre',
-            'primer_apellido',
-            'segundo_apellido',
-            'rut',
-            'email',
-        ]
-
-
-class AdminPropiedadSerializer(serializers.ModelSerializer):
-    propietario = AdminPropietarioBasicoSerializer(read_only=True)
-    propietario_id = serializers.PrimaryKeyRelatedField(
-        source='propietario',
-        queryset=Propietario.objects.all(),
-        write_only=True,
-        required=False,  
-    )
-
-    class Meta:
-        model = Propiedad
-        fields = [
-            'id',
-            'propietario',
-            'propietario_id',
-            'titulo',
-            'direccion',
-            'ciudad',
-            'descripcion',
-            'tipo',
-            'dormitorios',
-            'baos',
-            'metros2',
-            'precio',
-            'estado',
-            'estado_aprobacion',
-            'orientacion',
-        ]
-  
 class PropiedadSerializer(serializers.ModelSerializer):
     class Meta:
         model = Propiedad
@@ -406,7 +339,7 @@ class ReservaSerializer(serializers.ModelSerializer):
             "interesado",
             "propiedad",
         )
-
+    """
     def create(self, validated_data):
         request = self.context.get("request")
         if request is None or not request.user.is_authenticated:
@@ -427,6 +360,7 @@ class ReservaSerializer(serializers.ModelSerializer):
             validated_data["expires_at"] = timezone.now() + timedelta(hours=72)
 
         return super().create(validated_data)
+    """
 
     def get_vencida(self, obj):
         return bool(obj.expires_at and obj.expires_at <= timezone.now())
@@ -460,3 +394,6 @@ class HistorialSerializer(serializers.ModelSerializer):
         model = Historial
         fields = ["id", "usuario", "fecha", "accion", "descripcion"]
 
+class CambiarPasswordSerializer(serializers.Serializer):
+    password_actual = serializers.CharField(required=True)
+    password_nueva = serializers.CharField(required=True, min_length=8)
